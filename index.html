@@ -138,8 +138,8 @@
   }
 
   .chart {
+    position: relative;
     display: flex;
-    align-items: flex-end;
     gap: 2px;
     height: 200px;
     padding: 0 2px;
@@ -147,11 +147,21 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .zero-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--border);
+    pointer-events: none;
+    z-index: 1;
+  }
+
   .bar {
-    flex: 1;
+    position: absolute;
     min-width: 2px;
-    border-radius: 2px 2px 0 0;
-    position: relative;
+    border-radius: 2px;
+    z-index: 2;
     cursor: default;
   }
 
@@ -392,10 +402,20 @@ async function loadRates() {
     const range = Math.max(max - min, 1);
     const chartEl = document.getElementById('chart');
     chartEl.innerHTML = '';
-    rates.forEach(r => {
+    const zeroPct = max / range * 100;
+    const zeroLine = document.createElement('div');
+    zeroLine.className = 'zero-line';
+    zeroLine.style.top = zeroPct + '%';
+    chartEl.appendChild(zeroLine);
+    rates.forEach((r, index) => {
       const bar = document.createElement('div');
       bar.className = 'bar' + (r === nowRate ? ' now' : '');
-      const heightPct = Math.max(((r.value_inc_vat - Math.min(min, 0)) / (range + Math.max(-min, 0))) * 100, 2);
+      const heightPct = Math.max(Math.abs(r.value_inc_vat) / range * 100, 1);
+      const widthPct = 100 / rates.length;
+      const topPct = r.value_inc_vat >= 0 ? zeroPct - heightPct : zeroPct;
+      bar.style.left = (index * widthPct) + '%';
+      bar.style.top = topPct + '%';
+      bar.style.width = 'calc(' + widthPct + '% - 2px)';
       bar.style.height = heightPct + '%';
       bar.style.background = tierColor(r.value_inc_vat);
       const tip = document.createElement('span');
