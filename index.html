@@ -2,23 +2,175 @@
 <html>
 <head>
     <title>Octopus Energy Agile Price</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            max-width: 1000px;
+        }
+
+        #price {
+            font-size: 1.25rem;
+            margin: 1rem 0;
+        }
+
+        #priceGraph {
+            border: 1px solid #d0d0d0;
+            display: block;
+            height: 360px;
+            margin-top: 1rem;
+            width: 100%;
+        }
+
+        .graph-label {
+            fill: #555;
+            font-size: 12px;
+        }
+
+        .price-line {
+            fill: none;
+            stroke: #1261a0;
+            stroke-width: 2;
+        }
+
+        .negative-price {
+            fill: #c0392b;
+        }
+
+        .positive-price {
+            fill: #1261a0;
+        }
+
+        .zero-line {
+            stroke: #222;
+            stroke-width: 1.5;
+        }
+    </style>
 </head>
 <body>
     <h1>Octopus Energy Agile Price</h1>
     <div id="price"></div>
     <button onclick="getOctopusEnergyPrice()">Update Price</button>
+    <svg id="priceGraph" role="img" aria-label="Agile electricity prices graph"></svg>
 
     <script>
+        const graphWidth = 1000;
+        const graphHeight = 360;
+        const graphPadding = { top: 24, right: 24, bottom: 36, left: 56 };
+
+        function addSvgElement(svg, type, attributes) {
+            const element = document.createElementNS('http://www.w3.org/2000/svg', type);
+            Object.entries(attributes).forEach(([name, value]) => {
+                element.setAttribute(name, value);
+            });
+            svg.appendChild(element);
+            return element;
+        }
+
+        function renderPriceGraph(rates) {
+            const graph = document.getElementById('priceGraph');
+            graph.setAttribute('viewBox', `0 0 ${graphWidth} ${graphHeight}`);
+            graph.replaceChildren();
+
+            const values = rates.map(rate => rate.value_inc_vat);
+            const minimum = Math.min(0, ...values);
+            const maximum = Math.max(0, ...values);
+            const range = maximum - minimum || 1;
+            const plotWidth = graphWidth - graphPadding.left - graphPadding.right;
+            const plotHeight = graphHeight - graphPadding.top - graphPadding.bottom;
+            const xStep = rates.length > 1 ? plotWidth / (rates.length - 1) : plotWidth;
+            const valueToY = value => graphPadding.top + ((maximum - value) / range) * plotHeight;
+            const zeroY = valueToY(0);
+
+            addSvgElement(graph, 'line', {
+                class: 'zero-line',
+                x1: graphPadding.left,
+                x2: graphWidth - graphPadding.right,
+                y1: zeroY,
+                y2: zeroY
+            });
+            addSvgElement(graph, 'text', {
+                class: 'graph-label',
+                x: 8,
+                y: zeroY - 5
+            }).textContent = '£0';
+
+            const points = rates.map((rate, index) => {
+                const x = rates.length > 1
+                    ? graphPadding.left + index * xStep
+                    : graphPadding.left + plotWidth / 2;
+                return `${x},${valueToY(rate.value_inc_vat)}`;
+            }).join(' ');
+
+            addSvgElement(graph, 'polyline', {
+                class: 'price-line',
+                points
+            });
+
+            rates.forEach((rate, index) => {
+                const x = rates.length > 1
+                    ? graphPadding.left + index * xStep
+                    : graphPadding.left + plotWidth / 2;
+                const y = valueToY(rate.value_inc_vat);
+                const point = addSvgElement(graph, 'circle', {
+                    class: rate.value_inc_vat < 0 ? 'negative-price' : 'positive-price',
+                    cx: x,
+                    cy: y,
+                    r: 3
+                });
+                point.setAttribute('aria-label', `${rate.value_inc_vat} pounds per kWh`);
+            });
+
+            addSvgElement(graph, 'text', {
+                class: 'graph-label',
+                x: graphPadding.left,
+                y: graphHeight - 10
+            }).textContent = 'Earlier';
+            addSvgElement(graph, 'text', {
+                class: 'graph-label',
+                'text-anchor': 'end',
+                x: graphWidth - graphPadding.right,
+                y: graphHeight - 10
+            }).textContent = 'Later';
+        }
+
         function getOctopusEnergyPrice() {
+            const priceElement = document.getElementById('price');
+            priceElement.textContent = 'Loading current price...';
+
             fetch('https://api.octopus.energy/v1/products/AGILE-18-02-28/electricity-tariffs/E-1R-AGILE-18-02-28-G/standard-unit-rates/')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
-                    const price = data.data[0].value_inc_vat;
-                    document.getElementById('price').innerHTML = `Current Octopus Energy Agile Price: £${price} per kWh`;
+                    const rates = (Array.isArray(data && data.data) ? data.data : [])
+                        .filter(rate => rate && typeof rate.value_inc_vat === 'number')
+                        .sort((first, second) => new Date(first.valid_from) - new Date(second.valid_from));
+                    const now = Date.now();
+                    const currentRate = rates.find(rate => {
+                        if (!rate || !rate.valid_from || !rate.valid_to) {
+                            return false;
+                        }
+
+                        const validFrom = new Date(rate.valid_from).getTime();
+                        const validTo = new Date(rate.valid_to).getTime();
+                        return now >= validFrom && now < validTo;
+                    }) || rates[0];
+
+                    if (!currentRate || typeof currentRate.value_inc_vat !== 'number') {
+                        throw new Error('Price data unavailable');
+                    }
+
+                    renderPriceGraph(rates);
+                    const price = currentRate.value_inc_vat;
+                    priceElement.textContent = `Current Octopus Energy Agile Price: £${price} per kWh`;
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    document.getElementById('price').innerHTML = 'Error fetching price data';
+                    priceElement.textContent = 'Error fetching price data';
                 });
         }
 
