@@ -318,6 +318,7 @@ const REGION_KEY = 'agile-lookup-region';
 let refreshTimer = null;
 
 function tierColor(p) {
+  if (p < 0) return '#3b82f6';
   if (p < 15) return '#3fb98a';
   if (p < 30) return '#d9a441';
   return '#dd6b52';
